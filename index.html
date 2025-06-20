@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Labirinto 3D Procedural</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #333; }
+        canvas { display: block; }
+
+        /* Estilos para o menu principal */
+        #mainMenu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex; /* Flexbox para centralizar conteúdo */
+            flex-direction: column; /* Conteúdo em coluna */
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 2em;
+            text-align: center;
+            background-color: rgba(0, 0, 0, 0.8); /* Fundo escuro semi-transparente */
+            /* Imagem de fundo do menu */
+            background-image: url('doom_chaves.jpg'); /* Nome de arquivo padronizado */
+            background-size: cover; /* Cobre todo o div */
+            background-position: center; /* Centraliza a imagem */
+            z-index: 101; /* Maior z-index para ficar acima de tudo */
+        }
+
+        #mainMenu h1 {
+            color: white; /* Cor do título para contraste */
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7); /* Sombra para destacar o texto */
+            margin-bottom: 30px; /* Espaço entre o título e o botão */
+        }
+
+        #mainMenu button {
+            padding: 15px 30px;
+            font-size: 1.2em;
+            background-color: #e74c3c; /* Vermelho vibrante para o botão */
+            color: white;
+            border: none;
+            border-radius: 8px; /* Cantos mais arredondados */
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); /* Sombra para profundidade */
+        }
+
+        #mainMenu button:hover {
+            background-color: #c0392b; /* Tom mais escuro no hover */
+            transform: translateY(-2px); /* Efeito de leve levantamento */
+        }
+
+        #mainMenu button:active {
+            transform: translateY(0); /* Volta ao normal ao clicar */
+            box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Estilos para o overlay (Game Over / Erro / Pausado) */
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none; /* Começa escondido, só aparece em caso de erro/game over/pausa */
+            flex-direction: column; /* Para centralizar texto e talvez um botão de retomar */
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 2em;
+            text-align: center;
+            background-color: rgba(0, 0, 0, 0.7); /* Fundo escuro semi-transparente */
+            z-index: 100; /* Abaixo do menu principal, acima do jogo */
+            cursor: pointer; /* Indica que pode ser clicado para continuar */
+        }
+
+        #overlay h1 {
+            margin-bottom: 10px;
+        }
+        #overlay p {
+            font-size: 0.6em;
+            margin-top: 0;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            margin-left: -10px;
+            margin-top: -10px;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-sizing: border-box;
+            display: none; /* Escondido por padrão, só aparece no jogo */
+            z-index: 99;
+        }
+        #playerHealthBarContainer {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 30px;
+            background-color: #555;
+            border: 2px solid #fff;
+            border-radius: 5px;
+            overflow: hidden;
+            z-index: 98;
+        }
+        #playerHealthBar {
+            width: 100%;
+            height: 100%;
+            background-color: green;
+            transition: width 0.2s ease-out, background-color 0.2s ease-out;
+        }
+        .enemy-health-bar-container {
+            position: absolute;
+            width: 50px;
+            height: 8px;
+            background-color: #333;
+            border: 1px solid #000;
+            border-radius: 2px;
+            overflow: hidden;
+            pointer-events: none; /* Permite cliques passarem por ele */
+            transform: translate(-50%, -50%); /* Centraliza via JS */
+            z-index: 97;
+        }
+        .enemy-health-bar {
+            width: 100%;
+            height: 100%;
+            background-color: limegreen;
+            transition: width 0.1s ease-out;
+        }
+        #ammoDisplay {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: white;
+            font-family: Arial, sans-serif; /* Usando Arial como fallback */
+            font-size: 1.5em;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+            z-index: 98;
+        }
+    </style>
+</head>
+<body>
+    <div id="mainMenu">
+        <h1>Doom Chaves</h1>
+        <button id="startGameButton">Iniciar Jogo</button>
+        
+    </div>
+
+    <div id="overlay"></div>
+    <div id="crosshair"></div>
+    <div id="playerHealthBarContainer">
+        <div id="playerHealthBar"></div>
+    </div>
+    <div id="enemyHealthBars"></div>
+    <div id="ammoDisplay"></div>
+
+    <audio id="menuMusic" src="chaves menu.mp3" loop></audio>
+    <audio id="gameplayMusic" src="só os skates sabem.mp3" loop></audio>
+    <audio id="damageSound" src="pancada.mp3"></audio>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
