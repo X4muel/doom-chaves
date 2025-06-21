@@ -87,10 +87,27 @@ let reloadSound;
 
 let mainMenu; // Reference to the main menu div
 let startGameButton; // Reference to the start game button
+let multiplayerButton; // New: Reference to the multiplayer button
+let multiplayerLobby; // New: Reference to the multiplayer lobby div
+let createRoomCoopButton; // New: Create Cooperative Room button
+let createRoomCompetitiveButton; // New: Create Competitive Room button
+let backToMenuButton; // New: Back to Main Menu button
+let roomListElement; // New: UL element to list rooms
+let userIdDisplay; // New: Element to display user ID
+
+// Firebase Variables
+let db;
+let auth;
+let currentUserId; // Stores the Firebase user ID
+let currentRoomRef = null; // Reference to the current joined room
+let unsubscribeFromRoom = null; // Function to unsubscribe from room updates
 
 // Input State - Unified input handling for mobile game logic activation
 const inputState = {
-    canMove: false // Initialized to false, set to true when game starts
+    canMove: false, // Initialized to false, set to true when game starts
+    joystickActive: false, // For mobile joystick
+    lastTouchX: 0, // For mobile look
+    lastTouchY: 0, // For mobile look
 };
 
 // Touch Control Specifics
@@ -113,6 +130,14 @@ function init() {
     // References to DOM elements
     mainMenu = document.getElementById('mainMenu');
     startGameButton = document.getElementById('startGameButton');
+    multiplayerButton = document.getElementById('multiplayerButton'); // Get multiplayer button
+    multiplayerLobby = document.getElementById('multiplayerLobby'); // Get multiplayer lobby div
+    createRoomCoopButton = document.getElementById('createRoomCoopButton');
+    createRoomCompetitiveButton = document.getElementById('createRoomCompetitiveButton');
+    backToMenuButton = document.getElementById('backToMenuButton');
+    roomListElement = document.getElementById('roomList');
+    userIdDisplay = document.getElementById('userIdDisplay');
+
     overlay = document.getElementById('overlay');
     crosshair = document.getElementById('crosshair');
     playerHealthBar = document.getElementById('playerHealthBar');
@@ -140,29 +165,258 @@ function init() {
         return; // Exit init function if main menu is missing
     }
 
-    // Listener for the start game button
+    // --- Menu Button Listeners ---
     if (startGameButton) {
         startGameButton.addEventListener('click', () => {
-            console.log("Start Game button clicked. Attempting to play menu music...");
-            // Ensure menu music plays on button click
+            console.log("Single Player Game button clicked. Attempting to play menu music...");
             playSound(menuMusic, true);
-            startGame(); // Start game setup
+            startGame(false); // Start single player game
         });
     } else {
-        console.error("ERRO: 'startGameButton' element not found! Check index.html");
-        if (overlay) {
-            overlay.innerHTML = '<h1>Erro: Botão "Iniciar Jogo" não encontrado!</h1><p>Verifique o console do navegador e o arquivo index.html.</p>';
-            overlay.style.display = 'flex';
-        }
+        console.error("ERRO: Elemento 'startGameButton' não encontrado!");
+    }
+
+    if (multiplayerButton) {
+        multiplayerButton.addEventListener('click', () => {
+            showMultiplayerLobby();
+        });
+    } else {
+        console.error("ERRO: Elemento 'multiplayerButton' não encontrado!");
+    }
+
+    // --- Multiplayer Lobby Button Listeners ---
+    if (createRoomCoopButton) {
+        createRoomCoopButton.addEventListener('click', () => createRoom('coop'));
+    }
+    if (createRoomCompetitiveButton) {
+        createRoomCompetitiveButton.addEventListener('click', () => createRoom('competitive'));
+    }
+    if (backToMenuButton) {
+        backToMenuButton.addEventListener('click', () => {
+            hideMultiplayerLobby();
+            if (menuMusic) playSound(menuMusic, true); // Resume menu music
+        });
+    }
+
+    // Initialize Firebase (Firebase variables are attached to window by the <script type="module"> in index.html)
+    db = window.db;
+    auth = window.auth;
+
+    // Listen for auth state changes to get the user ID
+    if (auth) {
+        firebase.auth().onAuthStateChanged((user) => { // Using firebase.auth() due to global scope issue
+            if (user) {
+                currentUserId = user.uid;
+                if (userIdDisplay) userIdDisplay.textContent = `ID do Usuário: ${currentUserId.substring(0, 8)}...`; // Display truncated ID
+                console.log("Current user ID:", currentUserId);
+                if (multiplayerLobby.style.display === 'flex') { // If lobby is already visible
+                    listenForRooms(); // Start listening for rooms once authenticated
+                }
+            } else {
+                console.warn("No user signed in yet.");
+            }
+        });
+    } else {
+        console.error("Firebase Auth not initialized!");
     }
 }
 
-// --- Function to Start the Game (after menu click) ---
-async function startGame() {
-    // Hide main menu
+// --- Function to Show Multiplayer Lobby ---
+function showMultiplayerLobby() {
     if (mainMenu) mainMenu.style.display = 'none';
+    if (multiplayerLobby) multiplayerLobby.style.display = 'flex';
+    if (menuMusic) playSound(menuMusic, true); // Ensure menu music is playing in lobby
 
-    // Initial Three.js scene setup
+    if (currentUserId) { // Only listen for rooms if user is authenticated
+        listenForRooms();
+    } else {
+        roomListElement.innerHTML = '<li>Autenticando...</li>';
+    }
+}
+
+// --- Function to Hide Multiplayer Lobby ---
+function hideMultiplayerLobby() {
+    if (multiplayerLobby) multiplayerLobby.style.display = 'none';
+    if (mainMenu) mainMenu.style.display = 'flex';
+    if (unsubscribeFromRoom) {
+        unsubscribeFromRoom(); // Stop listening for rooms
+        unsubscribeFromRoom = null;
+    }
+}
+
+// --- Listen for Real-time Room Updates ---
+function listenForRooms() {
+    if (!db) {
+        console.error("Firestore DB not initialized!");
+        return;
+    }
+
+    const roomsCollection = firebase.firestore().collection(`artifacts/${__app_id}/public/data/rooms`); // Correct collection path
+
+    // Unsubscribe from previous listener if any
+    if (unsubscribeFromRoom) {
+        unsubscribeFromRoom();
+    }
+
+    unsubscribeFromRoom = roomsCollection.onSnapshot(snapshot => {
+        roomListElement.innerHTML = ''; // Clear existing rooms
+        if (snapshot.empty) {
+            roomListElement.innerHTML = '<li>Nenhuma sala disponível. Crie uma!</li>';
+            return;
+        }
+
+        snapshot.forEach(doc => {
+            const roomData = doc.data();
+            const roomId = doc.id;
+            const listItem = document.createElement('li');
+            listItem.innerHTML = `
+                <span>Sala: ${roomId.substring(0, 6)} | Modo: ${roomData.mode} | Jogadores: ${roomData.players ? Object.keys(roomData.players).length : 0}</span>
+                <button class="join-button" data-room-id="${roomId}">Entrar</button>
+            `;
+            listItem.querySelector('.join-button').addEventListener('click', (event) => joinRoom(event.target.dataset.roomId));
+            roomListElement.appendChild(listItem);
+        });
+    }, error => {
+        console.error("Error listening for rooms:", error);
+        roomListElement.innerHTML = '<li>Erro ao carregar salas. Tente novamente mais tarde.</li>';
+    });
+}
+
+// --- Create Room Function ---
+async function createRoom(mode) {
+    if (!db || !currentUserId) {
+        console.error("Firestore DB or User ID not available for room creation.");
+        return;
+    }
+
+    const roomsCollection = firebase.firestore().collection(`artifacts/${__app_id}/public/data/rooms`);
+
+    try {
+        const newRoomRef = await roomsCollection.add({
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            hostId: currentUserId,
+            mode: mode, // 'coop' or 'competitive'
+            status: 'waiting', // 'waiting', 'playing', 'finished'
+            players: {
+                [currentUserId]: { // Add host as the first player
+                    id: currentUserId,
+                    health: maxPlayerHealth,
+                    ammo: maxAmmo,
+                    position: new THREE.Vector3().toArray(), // Store as array
+                    rotation: new THREE.Euler().toArray(), // Store as array
+                    kills: 0,
+                    deaths: 0,
+                    // Add other player specific data
+                }
+            },
+            enemies: {}, // Enemies will be managed by the host initially
+            bullets: {}, // Bullets will be synced
+        });
+        console.log("Room created with ID:", newRoomRef.id);
+        joinRoom(newRoomRef.id); // Automatically join the created room
+    } catch (error) {
+        console.error("Error creating room:", error);
+    }
+}
+
+// --- Join Room Function ---
+async function joinRoom(roomId) {
+    if (!db || !currentUserId) {
+        console.error("Firestore DB or User ID not available for joining room.");
+        return;
+    }
+
+    currentRoomRef = firebase.firestore().collection(`artifacts/${__app_id}/public/data/rooms`).doc(roomId);
+
+    try {
+        const roomDoc = await currentRoomRef.get();
+        if (!roomDoc.exists) {
+            console.error("Room does not exist:", roomId);
+            return;
+        }
+
+        const roomData = roomDoc.data();
+        if (roomData.status !== 'waiting') {
+            console.warn("Cannot join room, it's already in progress or finished.");
+            // Display a message to the user
+            overlay.innerHTML = `<h1>Sala ${roomId.substring(0,6)} já está em jogo ou cheia!</h1><p>Tente outra sala.</p>`;
+            overlay.style.display = 'flex';
+            overlay.onclick = null; // Remove onclick to prevent reload on click
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 3000); // Hide message after 3 seconds
+            return;
+        }
+
+        // Add current player to the room's players list
+        const playerUpdate = {};
+        playerUpdate[`players.${currentUserId}`] = {
+            id: currentUserId,
+            health: maxPlayerHealth,
+            ammo: maxAmmo,
+            position: camera.position.toArray(),
+            rotation: camera.rotation.toArray(),
+            kills: 0,
+            deaths: 0,
+        };
+
+        await currentRoomRef.update(playerUpdate);
+        console.log("Joined room:", roomId);
+
+        // Start the game for this player
+        startGame(true); // true indicates multiplayer game
+        listenToRoomChanges(roomId); // Listen for real-time updates in this room
+
+    } catch (error) {
+        console.error("Error joining room:", error);
+    }
+}
+
+// --- Listen to Room Changes (Player Positions, etc.) ---
+function listenToRoomChanges(roomId) {
+    if (unsubscribeFromRoom) {
+        unsubscribeFromRoom(); // Unsubscribe from lobby listener
+    }
+
+    currentRoomRef = firebase.firestore().collection(`artifacts/${__app_id}/public/data/rooms`).doc(roomId);
+
+    // This listener will update game state based on changes in Firestore
+    unsubscribeFromRoom = currentRoomRef.onSnapshot(docSnapshot => {
+        if (docSnapshot.exists) {
+            const roomData = docSnapshot.data();
+            // console.log("Room data updated:", roomData);
+
+            // Update other players' positions, health, etc.
+            if (roomData.players) {
+                for (const playerId in roomData.players) {
+                    if (playerId !== currentUserId) { // Don't update current player's own data
+                        const playerData = roomData.players[playerId];
+                        // TODO: Implement logic to update other players' 3D models in the scene
+                        // For now, just log:
+                        // console.log(`Player ${playerId} - Pos:`, playerData.position, "Health:", playerData.health);
+                    }
+                }
+            }
+
+            // TODO: Update enemies, bullets based on roomData.enemies, roomData.bullets
+            // This will be more complex and requires a "host" or shared logic.
+        } else {
+            console.warn("Room no longer exists or you were removed.");
+            gameOver("Sala Fechada"); // Treat as game over or return to lobby
+        }
+    }, error => {
+        console.error("Error listening to room changes:", error);
+    });
+}
+
+
+// --- Function to Start the Game (now handles single/multiplayer) ---
+async function startGame(isMultiplayerMode) {
+    // Hide all menu/lobby UI
+    if (mainMenu) mainMenu.style.display = 'none';
+    if (multiplayerLobby) multiplayerLobby.style.display = 'none';
+
+    // Initial Three.js scene setup (same as before)
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xADD8E6);
 
@@ -182,7 +436,7 @@ async function startGame() {
     scene.add(playerPointLight);
 
     // Configure UI (health bars, ammo)
-    if (!playerHealthBar || !ammoDisplay || !enemyHealthBarsContainer || !crosshair || !overlay || !mobileControls || !touchLookArea) { // Added touchLookArea check
+    if (!playerHealthBar || !ammoDisplay || !enemyHealthBarsContainer || !crosshair || !overlay || !mobileControls || !touchLookArea) {
         console.error("ERROR: Some UI elements (health bar, ammo, overlay, crosshair, enemyHealthBars, mobileControls, touchLookArea) were not found! Check index.html");
         overlay.innerHTML = '<h1>Erro: Elementos da UI não encontrados!</h1><p>Verifique o console do navegador e o index.html.</p>';
         overlay.style.display = 'flex';
@@ -212,9 +466,18 @@ async function startGame() {
         return;
     }
 
-    // Maze generation and enemy spawning
-    generateMaze(mazeSize, mazeSize);
-    renderMaze();
+    // Maze generation and spawn enemies ONLY in single player or if this player is the host
+    if (!isMultiplayerMode || (isMultiplayerMode && currentRoomRef && (await currentRoomRef.get()).data().hostId === currentUserId)) {
+        generateMaze(mazeSize, mazeSize);
+        renderMaze();
+        // If multiplayer, host will also initialize and sync enemies to Firestore
+    } else {
+        // In multiplayer, clients will load maze/enemies from host data
+        // For now, just generate a dummy maze to see something
+        generateMaze(mazeSize, mazeSize);
+        renderMaze();
+    }
+    
     setupWeapon();
 
     // Initial player position
@@ -764,7 +1027,7 @@ function takeDamage(amount) {
         updateHealthDisplay();
         playSound(damageSound, false); // Play damage sound, don't loop
         if (playerHealth === 0) {
-            gameOver();
+            gameOver("Você foi derrotado!");
         }
     }
 }
@@ -797,19 +1060,58 @@ function updateAmmoDisplay() {
 }
 
 // --- Game Over Logic ---
-function gameOver() {
+function gameOver(message = "GAME OVER!") {
     inputState.canMove = false; // Stop game input
     if (gameplayMusic) gameplayMusic.pause();
     if (overlay) {
         overlay.style.display = 'flex';
-        overlay.innerHTML = '<h1>GAME OVER!</h1><p>Clique para Reiniciar</p>';
+        overlay.innerHTML = `<h1>${message}</h1><p>Clique para Reiniciar</p>`;
         overlay.onclick = () => location.reload(); // Reload page to restart
     }
     // Also release pointer lock if active on desktop
     if (!isTouchDevice && controls && controls.isLocked) { // Check if controls exist and are locked
         controls.unlock();
     }
+    if (currentRoomRef) {
+        // If in multiplayer, leave the room (or handle end of game for the room)
+        leaveRoom();
+    }
 }
+
+// --- Leave Room Logic (for Multiplayer) ---
+async function leaveRoom() {
+    if (!currentRoomRef || !currentUserId) return;
+
+    try {
+        const roomDoc = await currentRoomRef.get();
+        if (roomDoc.exists) {
+            const roomData = roomDoc.data();
+            const players = roomData.players || {};
+            if (players[currentUserId]) {
+                delete players[currentUserId]; // Remove current player from room
+
+                if (Object.keys(players).length === 0) {
+                    // If no players left, delete the room
+                    await currentRoomRef.delete();
+                    console.log("Room deleted as last player left.");
+                } else {
+                    // Update players list in Firestore
+                    await currentRoomRef.update({ players: players });
+                }
+                console.log("Left room:", currentRoomRef.id);
+            }
+        }
+    } catch (error) {
+        console.error("Error leaving room:", error);
+    } finally {
+        if (unsubscribeFromRoom) {
+            unsubscribeFromRoom();
+            unsubscribeFromRoom = null;
+        }
+        currentRoomRef = null;
+    }
+}
+
 
 // --- Reloading Logic ---
 function startReload() {
@@ -895,7 +1197,7 @@ function playSound(soundElement, loop = false) {
     if (soundElement) {
         // Only pause and reset if it's not the gameplay music and it's currently playing
         // or if it's the gameplay music and we explicitly want to restart it.
-        if (soundElement !== gameplayMusic || !loop) { // Changed condition
+        if (soundElement !== gameplayMusic || !loop) {
              if (!soundElement.paused) {
                  soundElement.pause();
              }
@@ -908,10 +1210,10 @@ function playSound(soundElement, loop = false) {
 
         if (playPromise !== undefined) {
             playPromise.then(_ => {
-                // console.log(`Audio '${soundElement.id}' playing.`);
+                // console.log(`Audio '${soundElement.id}' playing.`); // Keep quiet in production
             })
             .catch(error => {
-                console.warn(`WARNING: Falha ao tocar áudio '${soundElement.id}'. Motivo: ${error.message}`);
+                console.warn(`AVISO: Falha ao tocar áudio '${soundElement.id}'. Motivo: ${error.message}`);
                 console.warn("Isso geralmente ocorre devido às políticas de reprodução automática dos navegadores. Garanta que o usuário interagiu com a página antes de tentar tocar o áudio.");
             });
         }
