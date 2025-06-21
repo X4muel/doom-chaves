@@ -13,7 +13,7 @@ const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x4F4F4F });
 let controls; // Re-introducing PointerLockControls for desktop
 const playerHeight = cellSize / 2;
 const playerRadius = cellSize * 0.1;
-const playerSpeed = 0.15;
+let playerSpeed = 0.15; // Made mutable if needed for touch device speed adjustments
 let keys = {}; // Keeping for desktop keyboard input
 let playerHealth = 100;
 const maxPlayerHealth = 100;
@@ -74,6 +74,7 @@ let overlay, crosshair;
 let enemyHealthBarsContainer;
 let ammoDisplay;
 let mobileControls; // Reference to the mobile controls div
+let touchLookArea; // New: Reference to the touch look area div
 
 let playerPointLight;
 
@@ -118,6 +119,7 @@ function init() {
     enemyHealthBarsContainer = document.getElementById('enemyHealthBars');
     ammoDisplay = document.getElementById('ammoDisplay');
     mobileControls = document.getElementById('mobileControls');
+    touchLookArea = document.getElementById('touchLookArea'); // Get reference to the new touch look area
 
     // Load references for audio elements
     menuMusic = document.getElementById('menuMusic');
@@ -180,8 +182,8 @@ async function startGame() {
     scene.add(playerPointLight);
 
     // Configure UI (health bars, ammo)
-    if (!playerHealthBar || !ammoDisplay || !enemyHealthBarsContainer || !crosshair || !overlay || !mobileControls) {
-        console.error("ERROR: Some UI elements (health bar, ammo, overlay, crosshair, enemyHealthBars, mobileControls) were not found! Check index.html");
+    if (!playerHealthBar || !ammoDisplay || !enemyHealthBarsContainer || !crosshair || !overlay || !mobileControls || !touchLookArea) { // Added touchLookArea check
+        console.error("ERROR: Some UI elements (health bar, ammo, overlay, crosshair, enemyHealthBars, mobileControls, touchLookArea) were not found! Check index.html");
         overlay.innerHTML = '<h1>Erro: Elementos da UI não encontrados!</h1><p>Verifique o console do navegador e o index.html.</p>';
         overlay.style.display = 'flex';
         if (gameplayMusic) gameplayMusic.pause();
@@ -203,7 +205,7 @@ async function startGame() {
         await Promise.all(modelPromises);
         console.log("3D models loaded successfully!");
     } catch (error) {
-        console.error('FATAL ERROR: Failed to load 3D models:', error);
+        console.error('FATAL ERROR: Falha ao carregar modelos 3D:', error);
         overlay.innerHTML = '<h1>Erro ao carregar modelos 3D!</h1><p>Verifique o console para detalhes e os caminhos dos arquivos. (Ex: chaves.glb, deagle.glb)</p>';
         overlay.style.display = 'flex';
         if (gameplayMusic) gameplayMusic.pause();
@@ -259,16 +261,23 @@ function setupInputListeners() {
         if (crosshair) crosshair.style.display = 'none';
         // Show mobile controls
         if (mobileControls) mobileControls.style.display = 'block';
+        // Show touch look area
+        if (touchLookArea) touchLookArea.style.display = 'block';
+
 
         // Get joystick elements
         const joystickContainer = document.getElementById('joystickContainer');
         joystickKnob = document.getElementById('joystick');
 
-        // Add touch listeners to the renderer's canvas (for camera look)
-        renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: false });
-        renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
-        renderer.domElement.addEventListener('touchend', onTouchEnd, { passive: false });
-
+        // Add touch listeners to the DEDICATED touch look area (NOT renderer.domElement)
+        if (touchLookArea) {
+            touchLookArea.addEventListener('touchstart', onTouchStart, { passive: false });
+            touchLookArea.addEventListener('touchmove', onTouchMove, { passive: false });
+            touchLookArea.addEventListener('touchend', onTouchEnd, { passive: false });
+        } else {
+            console.error("ERROR: 'touchLookArea' element not found! Cannot set up touch look listeners.");
+        }
+        
         // Add listeners for virtual buttons
         document.getElementById('jumpButton').addEventListener('click', () => {
             if (isOnGround && inputState.canMove) { // Only jump if game is active
@@ -292,6 +301,8 @@ function setupInputListeners() {
     } else {
         // Desktop: Hide mobile controls
         if (mobileControls) mobileControls.style.display = 'none';
+        // Hide touch look area on desktop
+        if (touchLookArea) touchLookArea.style.display = 'none';
         // Show desktop crosshair
         if (crosshair) crosshair.style.display = 'block';
 
@@ -404,24 +415,8 @@ function onTouchStart(event) {
 
     for (let i = 0; i < event.changedTouches.length; i++) {
         const touch = event.changedTouches[i];
-        if (touch.target.id === 'shootButton') {
-            shoot();
-            event.preventDefault(); // Prevent default touch behavior
-        } else if (touch.target.id === 'jumpButton') {
-            if (isOnGround && inputState.canMove) {
-                verticalVelocity = jumpForce;
-                isJumping = true;
-                isOnGround = false;
-            }
-            event.preventDefault();
-        } else if (touch.target.id === 'reloadButton') {
-            startReload();
-            event.preventDefault();
-        } else if (touch.target.id === 'joystickContainer' || touch.target.id === 'joystick') {
-            // Handled by onJoystickTouchStart
-        } else {
-            // General screen touch for looking around (right side if joystick is on left)
-            // Or if no specific button/joystick is touched
+        // Ensure this touch is for the look area, not a button (buttons have their own listeners)
+        if (touch.target.id === 'touchLookArea') { 
             if (touchIdentifierLook === -1) { // Only if no other touch is controlling look
                 touchIdentifierLook = touch.identifier;
                 // Store initial touch position for look
@@ -463,7 +458,6 @@ function onTouchEnd(event) {
         const touch = event.changedTouches[i];
         if (touch.identifier === touchIdentifierLook) {
             touchIdentifierLook = -1; // Reset look touch
-            // No need to reset lookDeltaX/Y as direct camera rotation is used
             event.preventDefault();
         }
     }
@@ -476,18 +470,19 @@ function onJoystickTouchStart(event) {
 
     for (let i = 0; i < event.changedTouches.length; i++) {
         const touch = event.changedTouches[i];
-        if (touchIdentifierJoystick === -1) { // Only if no other touch is controlling joystick
-            touchIdentifierJoystick = touch.identifier;
+        if (touch.target.id === 'joystickContainer' || touch.target.id === 'joystick') { // Ensure touch is on joystick
+            if (touchIdentifierJoystick === -1) { // Only if no other touch is controlling joystick
+                touchIdentifierJoystick = touch.identifier;
 
-            const rect = event.currentTarget.getBoundingClientRect();
-            joystickCenter.set(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                const rect = event.currentTarget.getBoundingClientRect();
+                joystickCenter.set(rect.left + rect.width / 2, rect.top + rect.height / 2);
 
-            // Position the knob at the initial touch point
-            joystickKnob.style.transform = `translate(${touch.clientX - joystickCenter.x - joystickKnob.offsetWidth / 2}px, ${touch.clientY - joystickCenter.y - joystickKnob.offsetHeight / 2}px)`;
+                // Position the knob at the initial touch point
+                joystickKnob.style.transform = `translate(${touch.clientX - joystickCenter.x - joystickKnob.offsetWidth / 2}px, ${touch.clientY - joystickCenter.y - joystickKnob.offsetHeight / 2}px)`;
 
-            inputState.joystickActive = true;
-            // No need for currentTouchX/Y here, deltas are handled in onJoystickTouchMove
-            break; // Only handle the first touch for joystick
+                inputState.joystickActive = true;
+                break; // Only handle the first touch for joystick
+            }
         }
     }
 }
@@ -499,7 +494,7 @@ function onJoystickTouchMove(event) {
 
     for (let i = 0; i < event.changedTouches.length; i++) {
         const touch = event.changedTouches[i];
-        if (touch.identifier === touchIdentifierJoystick) {
+        if (touch.identifier === touchIdentifierJoystick) { // Ensure this touch is for the joystick
             let dx = touch.clientX - joystickCenter.x;
             let dy = touch.clientY - joystickCenter.y;
 
@@ -533,7 +528,7 @@ function onJoystickTouchEnd(event) {
 
     for (let i = 0; i < event.changedTouches.length; i++) {
         const touch = event.changedTouches[i];
-        if (touch.identifier === touchIdentifierJoystick) {
+        if (touch.identifier === touchIdentifierJoystick) { // Ensure this touch is for the joystick
             // Reset joystick knob position
             joystickKnob.style.transform = 'translate(0, 0)';
             

@@ -231,6 +231,18 @@
             transform: translate(0, 0); /* Posição inicial */
             touch-action: none; /* Impede ações padrão do toque, como rolagem */
         }
+
+        /* Nova área de toque para olhar ao redor em dispositivos móveis */
+        #touchLookArea {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%; /* Metade direita da tela para olhar */
+            height: 100%;
+            z-index: 103; /* Acima dos outros controles, mas abaixo do overlay/menu */
+            display: none; /* Escondido por padrão, mostrado no mobile via JS */
+            pointer-events: all; /* Permite eventos de toque */
+        }
         
         /* Media queries para telas menores (celulares) */
         @media (max-width: 768px) {
@@ -253,6 +265,10 @@
             /* Exibe os controles móveis em telas pequenas */
             #mobileControls {
                 display: block; 
+            }
+            /* Exibe a área de toque para olhar em telas pequenas */
+            #touchLookArea {
+                display: block;
             }
 
             .mobile-button {
@@ -317,6 +333,9 @@
         <button id="shootButton" class="mobile-button">🔥</button>
         <button id="reloadButton" class="mobile-button">Recarregar</button>
     </div>
+
+    <!-- Nova área de toque para o controle da câmera em dispositivos móveis -->
+    <div id="touchLookArea"></div>
 
 
     <audio id="menuMusic" src="chaves menu.mp3" loop></audio>
