@@ -1,21 +1,20 @@
-// --- Variáveis Globais ---
+// --- Global Variables ---
 let scene, camera, renderer;
 const mazeSize = 25;
 const cellSize = 10;
 let mazeGrid = [];
 let wallMeshes = [];
 
-// Materiais 3D
+// 3D Materials
 const wallMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
 const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x4F4F4F });
 
-// Player/Câmera
-let controls;
+// Player/Camera
+let controls; // Re-introducing PointerLockControls for desktop
 const playerHeight = cellSize / 2;
 const playerRadius = cellSize * 0.1;
 const playerSpeed = 0.15;
-let keys = {};
-let canMove = false; // Começa como false, só vira true com PointerLock
+let keys = {}; // Keeping for desktop keyboard input
 let playerHealth = 100;
 const maxPlayerHealth = 100;
 let lastDamageTime = 0;
@@ -23,49 +22,48 @@ const damageCooldown = 1000;
 let lastShotTime = 0;
 const shootCooldown = 200;
 
-// Variáveis para o pulo
+// Jump variables
 const jumpForce = 1;
 const gravity = 0.03;
 let verticalVelocity = 0;
 let isJumping = false;
 let isOnGround = true;
 
-// Variáveis para munição
+// Ammo variables
 let currentAmmo = 30;
 const maxAmmo = 30;
 const reloadTime = 1500;
 let isReloading = false;
 
-// Arma
+// Weapon
 let weaponMesh;
-let reloadStartTime = 0; 
-let originalWeaponRotation = new THREE.Euler(); 
-let weaponIdleOffset = 0; // Para animação de idle da arma
+let reloadStartTime = 0;
+let originalWeaponRotation = new THREE.Euler();
+let weaponIdleOffset = 0; // For weapon idle animation
 const weaponIdleSpeed = 0.05;
 const weaponIdleRange = 0.02;
 
-// Inimigos
+// Enemies
 let enemies = [];
 const enemySpawnChance = 0.1;
 const enemySpeed = 0.04;
 const enemyDamage = 10;
 const enemyHealth = 50;
-const enemyCollisionRadius = cellSize * 0.8; 
+const enemyCollisionRadius = cellSize * 0.8;
 
-// Raycaster para Colisão e Tiro
+// Raycaster for Collision and Shooting
 const raycaster = new THREE.Raycaster();
-const collisionDistance = playerRadius + 0.1;
 
-// Efeito de bala
+// Bullet effect
 const bulletSpeed = 10;
 const bulletLifeTime = 1000;
 let bullets = [];
 const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
 
-// Loader de modelos GLTF
+// GLTF model loader
 const loader = new THREE.GLTFLoader();
-const ENEMY_MODEL_URL = 'chaves.glb'; 
-const WEAPON_MODEL_URL = null; 
+const ENEMY_MODEL_URL = 'chaves.glb';
+const WEAPON_MODEL_URL = null; // Set to your weapon GLB file, e.g., 'deagle.glb'
 
 let enemyModel = null;
 let weaponModel = null;
@@ -75,23 +73,43 @@ let playerHealthBar;
 let overlay, crosshair;
 let enemyHealthBarsContainer;
 let ammoDisplay;
+let mobileControls; // Reference to the mobile controls div
 
 let playerPointLight;
 
-// Variáveis de ÁUDIO e MENU
+// Audio and Menu Variables
 let menuMusic;
 let gameplayMusic;
 let damageSound;
-let shootSound; // Pode ser removido se não tiver tiro.mp3
-let reloadSound; // Pode ser removido se não tiver recarregar.mp3
+let shootSound;
+let reloadSound;
 
-let mainMenu; // Referência ao div do menu principal
-let startGameButton; // Referência ao botão de iniciar jogo
+let mainMenu; // Reference to the main menu div
+let startGameButton; // Reference to the start game button
 
+// Input State - Unified input handling for mobile game logic activation
+const inputState = {
+    canMove: false // Initialized to false, set to true when game starts
+};
 
-// --- Função de Inicialização (prepara o menu e listeners) ---
+// Touch Control Specifics
+let isTouchDevice = false;
+let touchIdentifierLook = -1; // Identifier for the touch controlling camera look
+let touchIdentifierJoystick = -1; // Identifier for the touch controlling joystick
+let joystickCenter = new THREE.Vector2(); // Center of the virtual joystick
+let joystickKnob = null; // Reference to the joystick knob element
+
+// --- Utility Function to Detect Mobile Device ---
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 0);
+}
+
+// --- Initialization Function (prepares menu and listeners) ---
 function init() {
-    // Referências aos elementos do DOM
+    isTouchDevice = isMobileDevice();
+    console.log("Is Mobile Device:", isTouchDevice);
+
+    // References to DOM elements
     mainMenu = document.getElementById('mainMenu');
     startGameButton = document.getElementById('startGameButton');
     overlay = document.getElementById('overlay');
@@ -99,39 +117,37 @@ function init() {
     playerHealthBar = document.getElementById('playerHealthBar');
     enemyHealthBarsContainer = document.getElementById('enemyHealthBars');
     ammoDisplay = document.getElementById('ammoDisplay');
+    mobileControls = document.getElementById('mobileControls');
 
-    // Carrega referências para os elementos de áudio
+    // Load references for audio elements
     menuMusic = document.getElementById('menuMusic');
     gameplayMusic = document.getElementById('gameplayMusic');
     damageSound = document.getElementById('damageSound');
-    // Verifique se os elementos de áudio existem antes de atribuir
-    shootSound = document.getElementById('shootSound'); 
-    reloadSound = document.getElementById('reloadSound'); 
+    shootSound = document.getElementById('shootSound');
+    reloadSound = document.getElementById('reloadSound');
 
-    // Garante que o menu principal seja exibido no início
+    // Ensure main menu is displayed at start
     if (mainMenu) {
         mainMenu.style.display = 'flex';
     } else {
-        console.error("ERRO: Elemento 'mainMenu' não encontrado! Verifique o index.html");
-        // Se o menu principal não for encontrado, exibe um erro no overlay
+        console.error("ERRO: 'mainMenu' element not found! Check index.html");
         if (overlay) {
             overlay.innerHTML = '<h1>Erro: Menu Principal não encontrado!</h1><p>Verifique o console do navegador e o arquivo index.html.</p>';
             overlay.style.display = 'flex';
         }
-        return; // Sai da função init se o menu principal não existir
+        return; // Exit init function if main menu is missing
     }
 
-    // Listener para o botão de iniciar jogo
+    // Listener for the start game button
     if (startGameButton) {
         startGameButton.addEventListener('click', () => {
-            console.log("Botão 'Iniciar Jogo' clicado. Tentando tocar música do menu...");
-            // Garante que a música do menu toque ao clicar no botão
-            playSound(menuMusic, true); 
-            startGame(); // Inicia a configuração do jogo
+            console.log("Start Game button clicked. Attempting to play menu music...");
+            // Ensure menu music plays on button click
+            playSound(menuMusic, true);
+            startGame(); // Start game setup
         });
     } else {
-        console.error("ERRO: Elemento 'startGameButton' não encontrado! Verifique o index.html");
-        // Se o botão não for encontrado, exibe um erro no overlay
+        console.error("ERRO: 'startGameButton' element not found! Check index.html");
         if (overlay) {
             overlay.innerHTML = '<h1>Erro: Botão "Iniciar Jogo" não encontrado!</h1><p>Verifique o console do navegador e o arquivo index.html.</p>';
             overlay.style.display = 'flex';
@@ -139,12 +155,12 @@ function init() {
     }
 }
 
-// --- Função para Iniciar o Jogo (após o clique no menu) ---
+// --- Function to Start the Game (after menu click) ---
 async function startGame() {
-    // Esconde o menu principal
+    // Hide main menu
     if (mainMenu) mainMenu.style.display = 'none';
-    
-    // Configuração inicial da cena Three.js
+
+    // Initial Three.js scene setup
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xADD8E6);
 
@@ -163,18 +179,18 @@ async function startGame() {
     playerPointLight = new THREE.PointLight(0xffffff, 0.7, 50);
     scene.add(playerPointLight);
 
-    // Configura UI (barras de vida, munição)
-    if (!playerHealthBar || !ammoDisplay || !enemyHealthBarsContainer || !crosshair || !overlay) {
-        console.error("ERRO: Alguns elementos da UI (barra de vida, munição, overlay, crosshair, enemyHealthBars) não foram encontrados! Verifique o index.html");
+    // Configure UI (health bars, ammo)
+    if (!playerHealthBar || !ammoDisplay || !enemyHealthBarsContainer || !crosshair || !overlay || !mobileControls) {
+        console.error("ERROR: Some UI elements (health bar, ammo, overlay, crosshair, enemyHealthBars, mobileControls) were not found! Check index.html");
         overlay.innerHTML = '<h1>Erro: Elementos da UI não encontrados!</h1><p>Verifique o console do navegador e o index.html.</p>';
         overlay.style.display = 'flex';
-        if (gameplayMusic) gameplayMusic.pause(); // Garante que a música do menu pare se houver erro
+        if (gameplayMusic) gameplayMusic.pause();
         return;
     }
     updateHealthDisplay();
     updateAmmoDisplay();
 
-    // Carregamento de modelos 3D
+    // Model loading
     const modelPromises = [];
     if (ENEMY_MODEL_URL) {
         modelPromises.push(loadModel(ENEMY_MODEL_URL).then(model => enemyModel = model));
@@ -185,68 +201,25 @@ async function startGame() {
 
     try {
         await Promise.all(modelPromises);
-        console.log("Modelos 3D carregados com sucesso!");
+        console.log("3D models loaded successfully!");
     } catch (error) {
-        console.error('ERRO FATAL: Falha ao carregar modelos 3D:', error);
+        console.error('FATAL ERROR: Failed to load 3D models:', error);
         overlay.innerHTML = '<h1>Erro ao carregar modelos 3D!</h1><p>Verifique o console para detalhes e os caminhos dos arquivos. (Ex: chaves.glb, deagle.glb)</p>';
         overlay.style.display = 'flex';
         if (gameplayMusic) gameplayMusic.pause();
         return;
     }
 
-    // Geração do labirinto e spawn de inimigos
+    // Maze generation and enemy spawning
     generateMaze(mazeSize, mazeSize);
     renderMaze();
     setupWeapon();
 
-    // Configuração dos controles de câmera (PointerLockControls)
-    controls = new THREE.PointerLockControls(camera, renderer.domElement);
-
-    // O listener de clique para travar o ponteiro - ESTA É A SEGUNDA INTERAÇÃO GARANTIDA
-    renderer.domElement.addEventListener('click', function() {
-        if (!controls.isLocked) {
-             console.log("Clicado no canvas. Tentando travar PointerLockControls...");
-             controls.lock();
-        }
-    });
-
-    controls.addEventListener('lock', function() {
-        // Quando o ponteiro é travado, o jogo está ativo.
-        console.log("PointerLockControls travado. Jogo ativo.");
-        if (overlay) overlay.style.display = 'none';
-        if (crosshair) crosshair.style.display = 'block';
-        canMove = true;
-        
-        // PAUSA A MÚSICA DO MENU E INICIA A MÚSICA DE GAMEPLAY AQUI
-        if (menuMusic && !menuMusic.paused) { 
-            menuMusic.pause();
-            menuMusic.currentTime = 0; 
-            console.log("Música do menu pausada ao iniciar gameplay.");
-        }
-        playSound(gameplayMusic, true); 
-    });
-
-    controls.addEventListener('unlock', function() {
-        // Quando o ponteiro é destravado (ex: pressiona ESC ou Game Over)
-        console.log("PointerLockControls destravado. Jogo pausado/inativo.");
-        if (overlay) {
-            // Se já for Game Over, não sobrescreva a mensagem
-            if (overlay.innerHTML.indexOf('GAME OVER') === -1) {
-                overlay.innerHTML = '<h1>Jogo Pausado</h1><p>Pressione ESC ou clique para continuar</p>';
-            }
-            overlay.style.display = 'flex'; 
-        }
-        if (crosshair) crosshair.style.display = 'none';
-        canMove = false;
-        // Pausa a música de gameplay quando o jogador sai do jogo
-        if (gameplayMusic) gameplayMusic.pause();
-    });
-
-    // Posição inicial do jogador
+    // Initial player position
     let startX = 0, startY = 0;
-    for(let y = 0; y < mazeSize; y++) {
-        for(let x = 0; x < mazeSize; x++) {
-            if(mazeGrid[y][x] === 1) {
+    for (let y = 0; y < mazeSize; y++) {
+        for (let x = 0; x < mazeSize; x++) {
+            if (mazeGrid[y][x] === 1) {
                 startX = x;
                 startY = y;
                 break;
@@ -256,43 +229,158 @@ async function startGame() {
     }
     camera.position.set(startX * cellSize + cellSize / 2, playerHeight, startY * cellSize + cellSize / 2);
 
-    // Listeners de eventos de teclado e mouse
-    document.addEventListener('keydown', onKeyDown, false);
-    document.addEventListener('keyup', onKeyUp, false);
-    document.addEventListener('mousedown', onMouseDown, false); 
+    // Input listeners
+    setupInputListeners();
 
     window.addEventListener('resize', onWindowResize, false);
 
-    // Inicia o loop de animação
+    // Start animation loop
     animate();
+
+    // Game is now ready
+    showGameUI();
+    // Play gameplay music (triggered after user interaction in the menu)
+    if (menuMusic && !menuMusic.paused) {
+        menuMusic.pause();
+        menuMusic.currentTime = 0;
+        console.log("Menu music paused, starting gameplay music.");
+    }
+    playSound(gameplayMusic, true);
+
+    // Set canMove to true after everything is initialized and UI is ready
+    inputState.canMove = true;
+    console.log("Game started! inputState.canMove set to true.");
+}
+
+// --- Input Handling Setup ---
+function setupInputListeners() {
+    if (isTouchDevice) {
+        // Hide desktop crosshair
+        if (crosshair) crosshair.style.display = 'none';
+        // Show mobile controls
+        if (mobileControls) mobileControls.style.display = 'block';
+
+        // Get joystick elements
+        const joystickContainer = document.getElementById('joystickContainer');
+        joystickKnob = document.getElementById('joystick');
+
+        // Add touch listeners to the renderer's canvas (for camera look)
+        renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+        renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+        renderer.domElement.addEventListener('touchend', onTouchEnd, { passive: false });
+
+        // Add listeners for virtual buttons
+        document.getElementById('jumpButton').addEventListener('click', () => {
+            if (isOnGround && inputState.canMove) { // Only jump if game is active
+                verticalVelocity = jumpForce;
+                isJumping = true;
+                isOnGround = false;
+            }
+        });
+        document.getElementById('shootButton').addEventListener('click', shoot);
+        document.getElementById('reloadButton').addEventListener('click', startReload);
+
+        // Add specific touch listeners for the joystick container
+        if (joystickContainer) {
+            joystickContainer.addEventListener('touchstart', onJoystickTouchStart, { passive: false });
+            joystickContainer.addEventListener('touchmove', onJoystickTouchMove, { passive: false });
+            joystickContainer.addEventListener('touchend', onJoystickTouchEnd, { passive: false });
+        } else {
+             console.error("ERROR: Joystick container not found!");
+        }
+
+    } else {
+        // Desktop: Hide mobile controls
+        if (mobileControls) mobileControls.style.display = 'none';
+        // Show desktop crosshair
+        if (crosshair) crosshair.style.display = 'block';
+
+        // Initialize PointerLockControls for desktop
+        controls = new THREE.PointerLockControls(camera, renderer.domElement);
+        scene.add(controls.getObject()); // Add controls object to scene for player movement
+
+        // Request pointer lock on click for desktop
+        renderer.domElement.addEventListener('click', function() {
+            controls.lock();
+        });
+
+        // Event listeners for PointerLockControls state changes
+        controls.addEventListener('lock', function() {
+            console.log("PointerLockControls locked. Game active.");
+            showGameUI();
+            inputState.canMove = true; // Set game active flag
+            if (menuMusic && !menuMusic.paused) {
+                menuMusic.pause();
+                menuMusic.currentTime = 0;
+            }
+            playSound(gameplayMusic, true);
+        });
+
+        controls.addEventListener('unlock', function() {
+            console.log("PointerLockControls unlocked. Game paused/inactive.");
+            hideGameUI();
+            inputState.canMove = false; // Set game inactive flag
+            if (gameplayMusic) gameplayMusic.pause();
+        });
+
+        // Desktop keyboard listeners (used with PointerLockControls)
+        document.addEventListener('keydown', onKeyDown, false);
+        document.addEventListener('keyup', onKeyUp, false);
+        document.addEventListener('mousedown', onMouseDown, false); // Mouse down for shooting
+    }
+}
+
+// --- UI Display Functions ---
+function showGameUI() {
+    if (overlay) overlay.style.display = 'none';
+    if (crosshair && !isTouchDevice) crosshair.style.display = 'block'; // Only show crosshair on desktop
+    // Health and Ammo are always visible
+}
+
+function hideGameUI() {
+    if (overlay) {
+        if (overlay.innerHTML.indexOf('GAME OVER') === -1) {
+            overlay.innerHTML = '<h1>Jogo Pausado</h1><p>Pressione ESC ou clique para continuar</p>';
+        }
+        overlay.style.display = 'flex';
+    }
+    if (crosshair) crosshair.style.display = 'none';
 }
 
 
+// --- Model Loading ---
 function loadModel(url) {
     return new Promise((resolve, reject) => {
         loader.load(url, (gltf) => {
             resolve(gltf.scene);
         }, undefined, (error) => {
-            console.error(`Erro ao carregar o modelo 3D: ${url}`, error);
+            console.error(`Error loading 3D model: ${url}`, error);
             reject(error);
         });
     });
 }
 
+// --- Window Resize Handling ---
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    // Recalculate joystick center on resize for mobile
+    if (isTouchDevice && joystickKnob) {
+        const rect = document.getElementById('joystickContainer').getBoundingClientRect();
+        joystickCenter.set(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
 }
 
+// --- Desktop Keyboard Input (used with PointerLockControls) ---
 function onKeyDown(event) {
     keys[event.code] = true;
-    if (event.code === 'Space' && isOnGround && canMove) {
+    if (event.code === 'Space' && isOnGround && inputState.canMove) {
         verticalVelocity = jumpForce;
         isJumping = true;
         isOnGround = false;
     }
-    if (event.code === 'KeyR' && !isReloading && currentAmmo < maxAmmo && canMove) {
+    if (event.code === 'KeyR' && !isReloading && currentAmmo < maxAmmo && inputState.canMove) {
         startReload();
     }
 }
@@ -301,12 +389,168 @@ function onKeyUp(event) {
     keys[event.code] = false;
 }
 
+// --- Desktop Mouse Input (used with PointerLockControls) ---
 function onMouseDown(event) {
-    if (canMove && event.button === 0) { // Somente atira se o jogo estiver ativo e for botão esquerdo do mouse
+    // Only fire if pointer lock is active and left mouse button
+    if (inputState.canMove && event.button === 0 && (document.pointerLockElement === renderer.domElement || document.mozPointerLockElement === renderer.domElement || document.webkitPointerLockElement === renderer.domElement)) {
         shoot();
     }
 }
 
+// --- Mobile Touch Input ---
+function onTouchStart(event) {
+    // Only capture a touch if the game is active (not paused/menu)
+    if (!inputState.canMove) return;
+
+    for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        if (touch.target.id === 'shootButton') {
+            shoot();
+            event.preventDefault(); // Prevent default touch behavior
+        } else if (touch.target.id === 'jumpButton') {
+            if (isOnGround && inputState.canMove) {
+                verticalVelocity = jumpForce;
+                isJumping = true;
+                isOnGround = false;
+            }
+            event.preventDefault();
+        } else if (touch.target.id === 'reloadButton') {
+            startReload();
+            event.preventDefault();
+        } else if (touch.target.id === 'joystickContainer' || touch.target.id === 'joystick') {
+            // Handled by onJoystickTouchStart
+        } else {
+            // General screen touch for looking around (right side if joystick is on left)
+            // Or if no specific button/joystick is touched
+            if (touchIdentifierLook === -1) { // Only if no other touch is controlling look
+                touchIdentifierLook = touch.identifier;
+                // Store initial touch position for look
+                inputState.lastTouchX = touch.clientX; // Store for delta calculation
+                inputState.lastTouchY = touch.clientY;
+                event.preventDefault();
+            }
+        }
+    }
+}
+
+function onTouchMove(event) {
+    // Only process if game is active
+    if (!inputState.canMove) return;
+
+    for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        // If this touch is for looking around
+        if (touch.identifier === touchIdentifierLook) {
+            // Calculate delta and apply to camera rotation
+            camera.rotation.y += (touch.clientX - inputState.lastTouchX) * inputState.touchLookSensitivity;
+            camera.rotation.x += (touch.clientY - inputState.lastTouchY) * inputState.touchLookSensitivity;
+
+            // Clamp camera pitch to prevent flipping
+            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+
+            inputState.lastTouchX = touch.clientX;
+            inputState.lastTouchY = touch.clientY;
+            event.preventDefault();
+        }
+    }
+}
+
+function onTouchEnd(event) {
+    // Only process if game is active
+    if (!inputState.canMove) return;
+
+    for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        if (touch.identifier === touchIdentifierLook) {
+            touchIdentifierLook = -1; // Reset look touch
+            // No need to reset lookDeltaX/Y as direct camera rotation is used
+            event.preventDefault();
+        }
+    }
+}
+
+function onJoystickTouchStart(event) {
+    if (!inputState.canMove) return;
+
+    event.preventDefault(); // Prevent default scrolling/zooming
+
+    for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        if (touchIdentifierJoystick === -1) { // Only if no other touch is controlling joystick
+            touchIdentifierJoystick = touch.identifier;
+
+            const rect = event.currentTarget.getBoundingClientRect();
+            joystickCenter.set(rect.left + rect.width / 2, rect.top + rect.height / 2);
+
+            // Position the knob at the initial touch point
+            joystickKnob.style.transform = `translate(${touch.clientX - joystickCenter.x - joystickKnob.offsetWidth / 2}px, ${touch.clientY - joystickCenter.y - joystickKnob.offsetHeight / 2}px)`;
+
+            inputState.joystickActive = true;
+            // No need for currentTouchX/Y here, deltas are handled in onJoystickTouchMove
+            break; // Only handle the first touch for joystick
+        }
+    }
+}
+
+function onJoystickTouchMove(event) {
+    if (!inputState.canMove || !inputState.joystickActive) return;
+
+    event.preventDefault();
+
+    for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        if (touch.identifier === touchIdentifierJoystick) {
+            let dx = touch.clientX - joystickCenter.x;
+            let dy = touch.clientY - joystickCenter.y;
+
+            // Limit knob movement to joystick container radius
+            const maxDistance = joystickContainer.offsetWidth / 2 - joystickKnob.offsetWidth / 2;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > maxDistance) {
+                dx *= maxDistance / distance;
+                dy *= maxDistance / distance;
+            }
+
+            joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+
+            // Determine movement based on joystick position
+            // These directly set the `keys` for movement, consistent with desktop input
+            keys['KeyW'] = dy < -10;
+            keys['KeyS'] = dy > 10;
+            keys['KeyA'] = dx < -10;
+            keys['KeyD'] = dx > 10;
+
+            break;
+        }
+    }
+}
+
+function onJoystickTouchEnd(event) {
+    if (!inputState.canMove || !inputState.joystickActive) return;
+
+    event.preventDefault();
+
+    for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        if (touch.identifier === touchIdentifierJoystick) {
+            // Reset joystick knob position
+            joystickKnob.style.transform = 'translate(0, 0)';
+            
+            // Reset movement input keys
+            keys['KeyW'] = false;
+            keys['KeyS'] = false;
+            keys['KeyA'] = false;
+            keys['KeyD'] = false;
+
+            inputState.joystickActive = false;
+            touchIdentifierJoystick = -1; // Release joystick touch
+            break;
+        }
+    }
+}
+
+// --- Maze Generation ---
 function generateMaze(width, height) {
     for (let y = 0; y < height; y++) {
         mazeGrid[y] = [];
@@ -347,24 +591,27 @@ function generateMaze(width, height) {
 
     carvePassages(1, 1);
 
+    // Optional: Add some random openings in walls to make it less restrictive
     for (let y = 1; y < height - 1; y++) {
         for (let x = 1; x < width - 1; x++) {
             if (mazeGrid[y][x] === 0 && Math.random() < 0.05) {
-                 if (mazeGrid[y+1][x] === 1 || mazeGrid[y-1][x] === 1 || mazeGrid[y][x+1] === 1 || mazeGrid[y][x-1] === 1) {
-                     mazeGrid[y][x] = 1;
-                 }
+                // Only create an opening if adjacent to a path
+                if (mazeGrid[y+1][x] === 1 || mazeGrid[y-1][x] === 1 || mazeGrid[y][x+1] === 1 || mazeGrid[y][x-1] === 1) {
+                    mazeGrid[y][x] = 1;
+                }
             }
         }
     }
-    mazeGrid[height - 2][width - 1] = 1; 
+    mazeGrid[height - 2][width - 1] = 1; // Ensure an exit
 }
 
+// --- Maze Rendering ---
 function renderMaze() {
     const floorGeometry = new THREE.PlaneGeometry(mazeSize * cellSize, mazeSize * cellSize);
     const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
     floorMesh.rotation.x = -Math.PI / 2;
     floorMesh.position.set((mazeSize * cellSize) / 2 - cellSize / 2, 0, (mazeSize * cellSize) / 2 - cellSize / 2);
-    floorMesh.receiveShadow = true; 
+    floorMesh.receiveShadow = true;
     scene.add(floorMesh);
 
     const wallGeometry = new THREE.BoxGeometry(cellSize, cellSize, cellSize);
@@ -374,11 +621,12 @@ function renderMaze() {
             if (mazeGrid[y][x] === 0) {
                 const wall = new THREE.Mesh(wallGeometry, wallMaterial);
                 wall.position.set(x * cellSize + cellSize / 2, cellSize / 2, y * cellSize + cellSize / 2);
-                wall.castShadow = true; 
-                wall.receiveShadow = true; 
+                wall.castShadow = true;
+                wall.receiveShadow = true;
                 scene.add(wall);
                 wallMeshes.push(wall);
             } else {
+                // Spawn enemies in open areas, but not at the very start
                 if (Math.random() < enemySpawnChance && !(x === 1 && y === 1)) {
                     spawnEnemy(x * cellSize + cellSize / 2, y * cellSize + cellSize / 2);
                 }
@@ -387,14 +635,15 @@ function renderMaze() {
     }
 }
 
+// --- Weapon Setup ---
 function setupWeapon() {
     if (weaponModel) {
         weaponMesh = weaponModel.clone();
-        weaponMesh.scale.set(10, 10, 10); 
-        weaponMesh.position.set(0.6, -0.4, 1); 
-        weaponMesh.rotation.set(-Math.PI / 10, Math.PI, Math.PI / 2); 
+        weaponMesh.scale.set(10, 10, 10); // Adjust scale as needed
+        weaponMesh.position.set(0.6, -0.4, 1); // Adjust position relative to camera
+        weaponMesh.rotation.set(-Math.PI / 10, Math.PI, Math.PI / 2); // Adjust rotation as needed
 
-        originalWeaponRotation.copy(weaponMesh.rotation); 
+        originalWeaponRotation.copy(weaponMesh.rotation);
 
         weaponMesh.traverse((child) => {
             if (child.isMesh) {
@@ -403,20 +652,22 @@ function setupWeapon() {
             }
         });
     } else {
+        // Fallback simple weapon if no model is provided
         const weaponGeometry = new THREE.BoxGeometry(0.5, 0.2, 2);
         const weaponMaterial = new THREE.MeshBasicMaterial({ color: 0x555555 });
         weaponMesh = new THREE.Mesh(weaponGeometry, weaponMaterial);
-        weaponMesh.position.set(0.6, -0.4, -1);
+        weaponMesh.position.set(0.6, -0.4, -1); // Position relative to camera
     }
-    camera.add(weaponMesh); 
+    camera.add(weaponMesh); // Add weapon to camera so it moves with the player
 }
 
+// --- Enemy Spawning ---
 function spawnEnemy(x, z) {
     let enemy;
     if (enemyModel) {
         enemy = enemyModel.clone();
-        enemy.scale.set(4, 4, 4); 
-        enemy.position.set(x, 0, z); 
+        enemy.scale.set(4, 4, 4); // Adjust scale of Chaves model
+        enemy.position.set(x, 0, z); // Position at ground level
         enemy.traverse((child) => {
             if (child.isMesh) {
                 child.castShadow = true;
@@ -424,9 +675,10 @@ function spawnEnemy(x, z) {
             }
         });
     } else {
+        // Fallback simple enemy if no model is provided
         const enemyGeometry = new THREE.BoxGeometry(cellSize * 0.8, cellSize * 0.8, cellSize * 0.8);
         enemy = new THREE.Mesh(enemyGeometry, new THREE.MeshLambertMaterial({ color: 0xFF0000 }));
-        enemy.position.set(x, cellSize * 0.4, z);
+        enemy.position.set(x, cellSize * 0.4, z); // Position centered on cell
     }
 
     enemy.userData = {
@@ -439,6 +691,7 @@ function spawnEnemy(x, z) {
     enemies.push(enemy);
 }
 
+// --- Enemy Health Bar UI ---
 function createEnemyHealthBar(id) {
     const container = document.createElement('div');
     container.className = 'enemy-health-bar-container';
@@ -456,25 +709,29 @@ function updateEnemyHealthBar(enemy) {
     const healthBarEl = enemy.userData.healthBarElement;
     if (!healthBarEl) return;
 
+    // Check if enemy is visible (not behind a wall)
     const origin = camera.position.clone();
     const enemyWorldPosition = new THREE.Vector3();
     enemy.getWorldPosition(enemyWorldPosition);
     const direction = new THREE.Vector3().subVectors(enemyWorldPosition, origin).normalize();
     raycaster.set(origin, direction);
 
+    // Limit raycast distance to just before the enemy for occlusion check
     raycaster.far = origin.distanceTo(enemyWorldPosition) - (cellSize * 0.2);
 
     const intersects = raycaster.intersectObjects(wallMeshes);
 
     if (intersects.length > 0) {
-        healthBarEl.parentElement.style.display = 'none';
+        healthBarEl.parentElement.style.display = 'none'; // Hide if obstructed
         return;
     }
 
+    // Project 3D enemy position to 2D screen coordinates
     const vector = new THREE.Vector3();
     enemy.getWorldPosition(vector);
     vector.project(camera);
 
+    // Hide if behind camera or too far
     const distanceToEnemy = camera.position.distanceTo(enemy.position);
     if (vector.z < -1 || vector.z > 1 || distanceToEnemy > 100) {
         healthBarEl.parentElement.style.display = 'none';
@@ -486,7 +743,7 @@ function updateEnemyHealthBar(enemy) {
     const x = (vector.x * 0.5 + 0.5) * renderer.domElement.clientWidth;
     const y = (-vector.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
 
-    const offset = 50;
+    const offset = 50; // Offset above enemy's head
     healthBarEl.parentElement.style.left = `${x}px`;
     healthBarEl.parentElement.style.top = `${y - offset}px`;
 
@@ -502,6 +759,7 @@ function updateEnemyHealthBar(enemy) {
     }
 }
 
+// --- Player Health Handling ---
 function takeDamage(amount) {
     const currentTime = Date.now();
     if (currentTime - lastDamageTime > damageCooldown) {
@@ -509,7 +767,7 @@ function takeDamage(amount) {
         lastDamageTime = currentTime;
         if (playerHealth < 0) playerHealth = 0;
         updateHealthDisplay();
-        playSound(damageSound); 
+        playSound(damageSound, false); // Play damage sound, don't loop
         if (playerHealth === 0) {
             gameOver();
         }
@@ -529,6 +787,7 @@ function updateHealthDisplay() {
     }
 }
 
+// --- Ammo Display ---
 function updateAmmoDisplay() {
     if (ammoDisplay) {
         ammoDisplay.textContent = `Munição: ${currentAmmo}/${maxAmmo}`;
@@ -542,71 +801,75 @@ function updateAmmoDisplay() {
     }
 }
 
+// --- Game Over Logic ---
 function gameOver() {
-    canMove = false;
-    // O unlock dos controls irá exibir o overlay automaticamente
-    controls.unlock(); 
+    inputState.canMove = false; // Stop game input
     if (gameplayMusic) gameplayMusic.pause();
     if (overlay) {
         overlay.style.display = 'flex';
         overlay.innerHTML = '<h1>GAME OVER!</h1><p>Clique para Reiniciar</p>';
-        overlay.onclick = () => location.reload();
+        overlay.onclick = () => location.reload(); // Reload page to restart
+    }
+    // Also release pointer lock if active on desktop
+    if (!isTouchDevice && controls && controls.isLocked) { // Check if controls exist and are locked
+        controls.unlock();
     }
 }
 
+// --- Reloading Logic ---
 function startReload() {
     if (currentAmmo === maxAmmo || isReloading) {
-        console.log("Munição cheia ou já recarregando!");
+        console.log("Ammo full or already reloading!");
         return;
     }
     isReloading = true;
-    reloadStartTime = Date.now(); 
+    reloadStartTime = Date.now();
     if (weaponMesh) {
-        originalWeaponRotation.copy(weaponMesh.rotation); 
+        originalWeaponRotation.copy(weaponMesh.rotation);
     }
-    // Verifica se shootSound existe antes de tocar
-    if (reloadSound) { 
-        playSound(reloadSound); 
+    if (reloadSound) {
+        playSound(reloadSound, false); // Play reload sound, don't loop
     } else {
-        console.warn("Som de recarga não encontrado.");
+        console.warn("Reload sound not found.");
     }
 
-    console.log("Recarregando...");
+    console.log("Reloading...");
 
     setTimeout(() => {
         currentAmmo = maxAmmo;
         updateAmmoDisplay();
         isReloading = false;
-        console.log("Recarga completa!");
+        console.log("Reload complete!");
 
         if (weaponMesh) {
+            // Restore original weapon rotation after reload animation (if any)
             weaponMesh.rotation.copy(originalWeaponRotation);
         }
     }, reloadTime);
 }
 
+// --- Shooting Logic ---
 function shoot() {
     const currentTime = Date.now();
     if (isReloading) {
-        console.log("A arma está recarregando!");
+        console.log("Weapon is reloading!");
         return;
     }
     if (currentTime - lastShotTime < shootCooldown) {
         return;
     }
     if (currentAmmo <= 0) {
-        console.log("Sem munição! Pressione 'R' para recarregar.");
+        console.log("Out of ammo! Press 'R' (desktop) or 'Recarregar' button (mobile) to reload.");
         return;
     }
 
     lastShotTime = currentTime;
     currentAmmo--;
     updateAmmoDisplay();
-    // Verifica se shootSound existe antes de tocar
     if (shootSound) {
-        playSound(shootSound); 
+        playSound(shootSound, false); // Play shoot sound, don't loop
     } else {
-        console.warn("Som de tiro não encontrado.");
+        console.warn("Shoot sound not found.");
     }
 
     const bulletGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8);
@@ -616,7 +879,8 @@ function shoot() {
 
     const forwardVector = new THREE.Vector3();
     camera.getWorldDirection(forwardVector);
-    
+
+    // Offset bullet spawn position to appear from the weapon
     const bulletSpawnOffset = new THREE.Vector3(0.5, -0.2, 0.8);
     bulletSpawnOffset.applyQuaternion(camera.quaternion);
     bullet.position.add(bulletSpawnOffset);
@@ -625,30 +889,34 @@ function shoot() {
     bullet.userData.direction = forwardVector;
     bullet.userData.spawnTime = currentTime;
     bullet.userData.damage = 20;
-    bullet.userData.hit = false;
+    bullet.userData.hit = false; // Flag to check if bullet hit something
 
     scene.add(bullet);
     bullets.push(bullet);
 }
 
-// Função playSound ajustada para logar erros de autoplay
+// --- Audio Playback Function ---
 function playSound(soundElement, loop = false) {
     if (soundElement) {
-        // Pausa e reinicia o som para garantir que ele comece do zero
-        if (!soundElement.paused) { // Verifica se não está já pausado
-            soundElement.pause();
+        // Only pause and reset if it's not the gameplay music and it's currently playing
+        // or if it's the gameplay music and we explicitly want to restart it.
+        if (soundElement !== gameplayMusic || !loop) { // Changed condition
+             if (!soundElement.paused) {
+                 soundElement.pause();
+             }
+             soundElement.currentTime = 0;
         }
-        soundElement.currentTime = 0; 
-        soundElement.loop = loop;     
         
+        soundElement.loop = loop;
+
         const playPromise = soundElement.play();
 
         if (playPromise !== undefined) {
             playPromise.then(_ => {
-                console.log(`Áudio '${soundElement.id}' tocando.`);
+                // console.log(`Audio '${soundElement.id}' playing.`);
             })
             .catch(error => {
-                console.warn(`AVISO: Falha ao tocar áudio '${soundElement.id}'. Motivo: ${error.message}`);
+                console.warn(`WARNING: Falha ao tocar áudio '${soundElement.id}'. Motivo: ${error.message}`);
                 console.warn("Isso geralmente ocorre devido às políticas de reprodução automática dos navegadores. Garanta que o usuário interagiu com a página antes de tentar tocar o áudio.");
             });
         }
@@ -657,19 +925,44 @@ function playSound(soundElement, loop = false) {
     }
 }
 
-// --- Loop de Animação (Game Loop) ---
+// --- Animation Loop (Game Loop) ---
 function animate() {
     requestAnimationFrame(animate);
 
-    if (canMove) { 
+    if (inputState.canMove) { // Only update game logic if game is active
         const prevPosition = camera.position.clone();
 
-        const moveSpeed = playerSpeed;
-        if (keys['KeyW']) controls.moveForward(moveSpeed);
-        if (keys['KeyS']) controls.moveForward(-moveSpeed);
-        if (keys['KeyA']) controls.moveRight(-moveSpeed);
-        if (keys['KeyD']) controls.moveRight(moveSpeed);
+        // Player Movement (based on inputState)
+        // If desktop, controls.getObject() moves the camera directly
+        // If mobile, manual movement based on joystick
+        if (isTouchDevice) {
+            const moveVector = new THREE.Vector3();
+            const cameraDirection = new THREE.Vector3();
+            camera.getWorldDirection(cameraDirection); // Get current camera forward direction
+            cameraDirection.y = 0; // Keep movement on the XZ plane
+            cameraDirection.normalize();
 
+            const rightVector = new THREE.Vector3();
+            rightVector.crossVectors(cameraDirection, camera.up); // Get right vector
+
+            if (keys['KeyW']) moveVector.add(cameraDirection);
+            if (keys['KeyS']) moveVector.sub(cameraDirection);
+            if (keys['KeyA']) moveVector.sub(rightVector);
+            if (keys['KeyD']) moveVector.add(rightVector);
+
+            moveVector.normalize(); // Normalize diagonal movement speed
+            camera.position.addScaledVector(moveVector, playerSpeed);
+        } else {
+            // Desktop movement handled by PointerLockControls
+            const moveSpeed = playerSpeed;
+            if (keys['KeyW']) controls.moveForward(moveSpeed);
+            if (keys['KeyS']) controls.moveForward(-moveSpeed);
+            if (keys['KeyA']) controls.moveRight(-moveSpeed);
+            if (keys['KeyD']) controls.moveRight(moveSpeed);
+        }
+
+
+        // Player Jump
         if (!isOnGround) {
             verticalVelocity -= gravity;
             camera.position.y += verticalVelocity;
@@ -680,12 +973,11 @@ function animate() {
                 isOnGround = true;
                 isJumping = false;
             }
-        } else if (isJumping && verticalVelocity <= 0) {
-             isJumping = false;
         }
 
         playerPointLight.position.set(camera.position.x, camera.position.y + 5, camera.position.z);
 
+        // Player-Wall Collision
         const playerCurrentPos = camera.position.clone();
         const collisionDirections = [
             new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 1),
@@ -694,8 +986,9 @@ function animate() {
 
         let playerCollidedWithWall = false;
         for (const dir of collisionDirections) {
-            const rayDirection = dir.clone().applyQuaternion(camera.quaternion);
+            const rayDirection = dir.clone().applyQuaternion(camera.quaternion); // Apply camera rotation
             raycaster.set(playerCurrentPos, rayDirection);
+            raycaster.far = playerRadius; // Ray length equal to player radius
 
             const intersects = raycaster.intersectObjects(wallMeshes);
             if (intersects.length > 0 && intersects[0].distance < playerRadius) {
@@ -705,16 +998,20 @@ function animate() {
         }
 
         if (playerCollidedWithWall) {
-            camera.position.copy(prevPosition);
+            camera.position.copy(prevPosition); // Revert position if collided
         }
 
+        // Camera Look is handled by PointerLockControls on desktop, and manually on mobile (onTouchMove)
+        // No need to reset look deltas as direct camera rotation is used for mobile
+
+        // Weapon Idle Animation
         if (weaponMesh && !isReloading) {
             weaponIdleOffset += weaponIdleSpeed;
             weaponMesh.position.y = -0.4 + Math.sin(weaponIdleOffset) * weaponIdleRange;
             weaponMesh.position.x = 0.6 + Math.cos(weaponIdleOffset * 0.5) * weaponIdleRange * 0.5;
         }
 
-
+        // Enemy Movement and Player Collision
         enemies.forEach(enemy => {
             const enemyPrevPosition = enemy.position.clone();
 
@@ -724,8 +1021,9 @@ function animate() {
             enemy.position.x += directionToPlayer.x * enemySpeed;
             enemy.position.z += directionToPlayer.z * enemySpeed;
 
-            enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
+            enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z); // Make enemy face player
 
+            // Enemy-Wall Collision
             const enemyCollisionRays = [
                 new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
                 new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
@@ -734,6 +1032,7 @@ function animate() {
             let enemyCollidedWithWall = false;
             for (const dir of enemyCollisionRays) {
                 raycaster.set(enemy.position, dir);
+                raycaster.far = enemyCollisionRadius;
                 const intersects = raycaster.intersectObjects(wallMeshes);
                 if (intersects.length > 0 && intersects[0].distance < enemyCollisionRadius) {
                     enemyCollidedWithWall = true;
@@ -745,16 +1044,19 @@ function animate() {
                 enemy.position.copy(enemyPrevPosition);
             }
 
+            // Enemy-Player Damage
             const distanceToPlayer = enemy.position.distanceTo(camera.position);
             if (distanceToPlayer < (playerRadius + enemyCollisionRadius)) {
-                takeDamage(enemyDamage); 
+                takeDamage(enemyDamage);
             }
 
-            updateEnemyHealthBar(enemy);
+            updateEnemyHealthBar(enemy); // Update enemy health bar position
         });
 
+        // Bullet Movement and Collision
         const currentTime = Date.now();
         bullets = bullets.filter(bullet => {
+            // Remove old bullets
             if (currentTime - bullet.userData.spawnTime > bulletLifeTime) {
                 scene.remove(bullet);
                 return false;
@@ -764,53 +1066,57 @@ function animate() {
 
             bullet.position.addScaledVector(bullet.userData.direction, bulletSpeed);
 
+            // Check for bullet collision with walls
             const bulletTravelDirection = new THREE.Vector3().subVectors(bullet.position, bulletPrevPosition).normalize();
             raycaster.set(bulletPrevPosition, bulletTravelDirection);
-            raycaster.far = bulletPrevPosition.distanceTo(bullet.position) + 0.1;
+            raycaster.far = bulletPrevPosition.distanceTo(bullet.position) + 0.1; // Check along the bullet's path
 
             const wallIntersects = raycaster.intersectObjects(wallMeshes);
             if (wallIntersects.length > 0) {
                 scene.remove(bullet);
-                return false;
+                return false; // Remove bullet if it hits a wall
             }
 
+            // Check for bullet collision with enemies
             enemies.forEach(enemy => {
-                if (bullet.userData.hit) return;
+                if (bullet.userData.hit) return; // If already hit something, skip
 
                 const distanceToEnemy = bullet.position.distanceTo(enemy.position);
                 if (distanceToEnemy < enemyCollisionRadius) {
                     enemy.userData.health -= bullet.userData.damage;
                     updateEnemyHealthBar(enemy);
-                    bullet.userData.hit = true;
-                    scene.remove(bullet);
+                    bullet.userData.hit = true; // Mark bullet as hit
+                    scene.remove(bullet); // Remove bullet on hit
 
                     if (enemy.userData.health <= 0) {
                         scene.remove(enemy);
                         if (enemy.userData.healthBarElement) {
                             enemy.userData.healthBarElement.parentElement.remove();
                         }
-                        enemies = enemies.filter(e => e.userData.id !== enemy.userData.id);
+                        enemies = enemies.filter(e => e.userData.id !== enemy.userData.id); // Remove dead enemy
                     }
                 }
             });
 
-            return !bullet.userData.hit;
+            return !bullet.userData.hit; // Keep bullet if it hasn't hit yet
         });
     }
 
+    // Weapon Reload Animation
     if (isReloading && weaponMesh) {
         const elapsedTime = Date.now() - reloadStartTime;
-        const progress = Math.min(1, elapsedTime / reloadTime); 
+        const progress = Math.min(1, elapsedTime / reloadTime);
 
-        weaponMesh.rotation.z = originalWeaponRotation.z + (Math.PI * 2 * progress); 
-        
+        // Simple weapon rotation during reload
+        weaponMesh.rotation.z = originalWeaponRotation.z + (Math.PI * 2 * progress);
+
         if (progress >= 1) {
-             weaponMesh.rotation.copy(originalWeaponRotation); 
+            weaponMesh.rotation.copy(originalWeaponRotation); // Snap back to original
         }
     }
 
     renderer.render(scene, camera);
 }
 
-// Inicia o menu quando a janela carregar
+// Start menu when window loads
 window.onload = init;

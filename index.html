@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta name="google-site-verification" content="NQBSpiJFq_Q-6iZx2kRgd14yHQw7yamCmlc3KaEjzWQ" />
-    <title>Labirinto 3D Procedural</title>
+    <meta name="Doom Chaves" id="ch4vesd00m">
+    <title>Doom Chaves: Labirinto 3D Procedural</title>
+    <!-- Adicionado para garantir que o layout seja responsivo em dispositivos móveis -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body { margin: 0; overflow: hidden; background-color: #333; }
         canvas { display: block; }
@@ -19,11 +21,10 @@
             justify-content: center;
             align-items: center;
             color: white;
-            font-family: Arial, sans-serif;
+            font-family: 'Inter', Arial, sans-serif; /* Usando Inter como font-family principal */
             font-size: 2em;
             text-align: center;
             background-color: rgba(0, 0, 0, 0.8); /* Fundo escuro semi-transparente */
-            /* Imagem de fundo do menu */
             background-image: url('doom_chaves.jpg'); /* Nome de arquivo padronizado */
             background-size: cover; /* Cobre todo o div */
             background-position: center; /* Centraliza a imagem */
@@ -70,12 +71,13 @@
             justify-content: center;
             align-items: center;
             color: white;
-            font-family: Arial, sans-serif;
+            font-family: 'Inter', Arial, sans-serif;
             font-size: 2em;
             text-align: center;
             background-color: rgba(0, 0, 0, 0.7); /* Fundo escuro semi-transparente */
             z-index: 100; /* Abaixo do menu principal, acima do jogo */
             cursor: pointer; /* Indica que pode ser clicado para continuar */
+            border-radius: 10px; /* Cantos arredondados */
         }
 
         #overlay h1 {
@@ -142,10 +144,150 @@
             bottom: 20px;
             right: 20px;
             color: white;
-            font-family: Arial, sans-serif; /* Usando Arial como fallback */
+            font-family: 'Inter', Arial, sans-serif;
             font-size: 1.5em;
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
             z-index: 98;
+        }
+
+        /* --- Mobile Controls (visíveis apenas em telas menores) --- */
+        #mobileControls {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none; /* Escondido por padrão, será mostrado via JS em dispositivos móveis */
+            z-index: 102; /* Acima de tudo, mas abaixo do menu/overlay */
+            pointer-events: none; /* Permite cliques passarem por ele, exceto nos controles específicos */
+        }
+
+        .mobile-button {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            background-color: rgba(231, 76, 60, 0.7); /* Vermelho com transparência */
+            color: white;
+            border: none;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.8em;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4);
+            pointer-events: all; /* Torna os botões clicáveis */
+            transition: background-color 0.2s ease;
+            user-select: none; /* Evita seleção de texto no botão */
+            -webkit-tap-highlight-color: transparent; /* Remove highlight azul no toque */
+        }
+
+        .mobile-button:active {
+            background-color: rgba(192, 57, 43, 0.9); /* Vermelho mais escuro ao pressionar */
+        }
+
+        #jumpButton {
+            bottom: 120px;
+            right: 30px;
+        }
+
+        #shootButton {
+            bottom: 30px;
+            right: 30px;
+        }
+
+        #reloadButton {
+            bottom: 30px;
+            right: 120px; /* Posição ajustada para não sobrepor o botão de atirar */
+            font-size: 1.2em; /* Fonte menor para "Recarregar" */
+            width: 100px; /* Mais largo para o texto */
+            height: 60px;
+            border-radius: 10px;
+        }
+
+        #joystickContainer {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            width: 150px;
+            height: 150px;
+            background-color: rgba(0, 0, 0, 0.5); /* Fundo semi-transparente */
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: all; /* Torna a área do joystick clicável */
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #joystick {
+            width: 80px;
+            height: 80px;
+            background-color: rgba(255, 255, 255, 0.7); /* Branco com transparência */
+            border-radius: 50%;
+            position: relative; /* Para o movimento do thumb */
+            transform: translate(0, 0); /* Posição inicial */
+            touch-action: none; /* Impede ações padrão do toque, como rolagem */
+        }
+        
+        /* Media queries para telas menores (celulares) */
+        @media (max-width: 768px) {
+            #crosshair {
+                display: none; /* Esconde o crosshair no mobile, pode ser ajustado */
+            }
+
+            #playerHealthBarContainer {
+                width: 200px; /* Barra de vida menor no mobile */
+                height: 25px;
+                bottom: 10px;
+            }
+
+            #ammoDisplay {
+                bottom: 10px;
+                right: 10px;
+                font-size: 1.2em; /* Fonte menor no mobile */
+            }
+
+            /* Exibe os controles móveis em telas pequenas */
+            #mobileControls {
+                display: block; 
+            }
+
+            .mobile-button {
+                width: 60px;
+                height: 60px;
+                font-size: 1.5em;
+            }
+            #jumpButton {
+                bottom: 80px;
+                right: 20px;
+            }
+
+            #shootButton {
+                bottom: 20px;
+                right: 20px;
+            }
+            #reloadButton {
+                bottom: 20px;
+                right: 90px;
+                width: 80px;
+                height: 50px;
+                font-size: 1em;
+            }
+
+            #joystickContainer {
+                width: 120px;
+                height: 120px;
+                bottom: 20px;
+                left: 20px;
+            }
+
+            #joystick {
+                width: 60px;
+                height: 60px;
+            }
         }
     </style>
 </head>
@@ -164,13 +306,31 @@
     <div id="enemyHealthBars"></div>
     <div id="ammoDisplay"></div>
 
+    <!-- Controles para dispositivos móveis -->
+    <div id="mobileControls">
+        <!-- Joystick para movimento -->
+        <div id="joystickContainer">
+            <div id="joystick"></div>
+        </div>
+        <!-- Botões de ação -->
+        <button id="jumpButton" class="mobile-button">↑</button>
+        <button id="shootButton" class="mobile-button">🔥</button>
+        <button id="reloadButton" class="mobile-button">Recarregar</button>
+    </div>
+
+
     <audio id="menuMusic" src="chaves menu.mp3" loop></audio>
     <audio id="gameplayMusic" src="só os skates sabem.mp3" loop></audio>
     <audio id="damageSound" src="pancada.mp3"></audio>
+    <!-- Substitua estas URLs por seus próprios arquivos de áudio válidos -->
+    <audio id="shootSound" src="https://placehold.co/1x1/000000/FFFFFF?text=shoot_sound_placeholder" preload="auto"></audio>
+    <audio id="reloadSound" src="https://placehold.co/1x1/000000/FFFFFF?text=reload_sound_placeholder" preload="auto"></audio>
+
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <!-- Re-added PointerLockControls.js for desktop support -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="main.js"></script>
 </body>
 </html>
